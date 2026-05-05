@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HealthGuard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-brand">
+        <span class="header-icon">🛡️</span>
+        <div>
+          <h1 class="header-title">HealthGuard</h1>
+          <p class="header-subtitle">AI Misinformation Detector</p>
+        </div>
+      </div>
+      <div class="header-status" id="status-indicator">
+        <span class="status-dot" id="status-dot"></span>
+        <span class="status-text" id="status-text">Checking...</span>
+      </div>
+    </header>
+
+    <!-- Toggle -->
+    <div class="toggle-section">
+      <span class="toggle-label">Active Scanning</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="toggle-scan" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <!-- Stats Section -->
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card stat-harmful">
+        <div class="stat-number" id="stat-harmful">0</div>
+        <div class="stat-label">Harmful</div>
+      </div>
+      <div class="stat-card stat-misleading">
+        <div class="stat-number" id="stat-misleading">0</div>
+        <div class="stat-label">Misleading</div>
+      </div>
+      <div class="stat-card stat-verified">
+        <div class="stat-number" id="stat-verified">0</div>
+        <div class="stat-label">Verified</div>
+      </div>
+      <div class="stat-card stat-irrelevant">
+        <div class="stat-number" id="stat-irrelevant">0</div>
+        <div class="stat-label">Irrelevant</div>
+      </div>
+    </div>
+
+    <!-- Manual Check -->
+    <div class="manual-section">
+      <h2 class="section-title">Check a Claim</h2>
+      <textarea id="manual-input" class="manual-input" rows="3" placeholder="Paste a health claim to verify..."></textarea>
+      <button id="check-btn" class="check-btn">
+        <span class="btn-text">Analyze Claim</span>
+        <span class="btn-loader" id="btn-loader" style="display:none;">⏳</span>
+      </button>
+    </div>
+
+    <!-- Result Display -->
+    <div id="result-card" class="result-card" style="display:none;">
+      <div class="result-header">
+        <span class="result-icon" id="result-icon"></span>
+        <span class="result-label" id="result-label"></span>
+        <span class="result-confidence" id="result-confidence"></span>
+      </div>
+      <div class="result-words" id="result-words"></div>
+      <div class="result-probs" id="result-probs"></div>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions">
+      <button class="action-btn" id="rescan-btn">🔄 Rescan Page</button>
+      <button class="action-btn" id="settings-btn">⚙️ Settings</button>
+    </div>
+
+    <!-- Settings Panel -->
+    <div id="settings-panel" class="settings-panel" style="display:none;">
+      <h2 class="section-title">Settings</h2>
+      <label class="settings-label">API Endpoint</label>
+      <input type="text" id="api-url-input" class="settings-input" placeholder="http://localhost:8000">
+      <button id="save-settings" class="check-btn" style="margin-top:8px;">Save</button>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span>HealthGuard v1.0</span>
+      <span>Powered by DistilBERT</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
