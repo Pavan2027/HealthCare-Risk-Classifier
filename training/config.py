@@ -63,6 +63,6 @@ GRADIENT_CHECKPOINTING = False  # Disabled to resolve backward pass conflict
 SEED = 42
 
 # --- Inference ---------------------------------------------------------------
-ONNX_MODEL_PATH = ONNX_DIR / "model_quantized.onnx"
+ONNX_MODEL_PATH = ONNX_DIR / "model.onnx"
 CONFIDENCE_THRESHOLD = 0.5  # Minimum confidence for high-confidence predictions
 TEMPERATURE = 1.0  # Temperature scaling (calibrated post-training)

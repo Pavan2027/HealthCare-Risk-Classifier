@@ -5,6 +5,7 @@ Uses Groq API (fast inference) with fallback to rule-based explanations.
 
 import sys
 import os
+import json
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -59,74 +60,62 @@ def _get_rule_based_explanation(text, label, confidence, important_words=None):
 
 async def get_llm_explanation(text, label, confidence, important_words=None):
     """
-    Generate an LLM-powered explanation for a classification result.
-    Uses Groq with caching and fallback.
-
-    Args:
-        text: The classified text
-        label: Predicted label
-        confidence: Confidence score
-        important_words: List of important words/dicts from attention
-
-    Returns:
-        str: Human-readable explanation
+    Generate an LLM-powered explanation and cross-check the classification.
+    Returns: (explanation, secondary_label)
     """
     # Check cache
     cache_key = f"{text[:100]}_{label}_{confidence:.2f}"
     if cache_key in _explanation_cache:
         return _explanation_cache[cache_key]
 
-    # Prepare important words string
-    if important_words:
-        words = [w["word"] if isinstance(w, dict) else w for w in important_words[:5]]
-        words_str = ", ".join(words)
-    else:
-        words_str = "N/A"
+    # Configuration from .env
+    provider = os.getenv("LLM_PROVIDER", "groq").lower()
+    model_name = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
+    api_base = os.getenv("LLM_API_BASE")
+    api_key = os.getenv("LLM_API_KEY")
 
-    # Try Groq API
-    api_key = os.getenv("GROQ_API_KEY")
-    if api_key and api_key != "your_gemini_api_key" and api_key != "your_groq_api_key":
+    if api_key and api_key != "your_api_key_here":
         try:
-            from groq import AsyncGroq
-
-            client = AsyncGroq(api_key=api_key)
-            model_name = "llama-3.3-70b-versatile"
-
-            prompt = (
-                f"You are a medical fact-checking assistant. A health claim has been "
-                f"classified as [{label}] with {confidence:.0%} confidence.\n\n"
-                f'Claim: "{text}"\n'
-                f"Key indicators: {words_str}\n\n"
-                f"Provide a concise 2-3 sentence explanation of why this classification "
-                f"is appropriate, referencing specific medical/scientific reasoning. "
-                f"Do NOT use markdown formatting. Be direct and informative."
-            )
-
-            response = await client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {"role": "system", "content": "You are a helpful medical fact-checker."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_completion_tokens=150,
-            )
+            from openai import AsyncOpenAI
             
-            explanation = response.choices[0].message.content.strip()
+            # Use context manager to ensure client closure
+            async with AsyncOpenAI(api_key=api_key, base_url=api_base) as client:
+                prompt = (
+                    f"You are a medical fact-checking assistant.\n"
+                    f"A primary model classified this claim as [{label}] with {confidence:.0%} confidence.\n\n"
+                    f"Claim: \"{text}\"\n\n"
+                    f"Task:\n"
+                    f"1. Provide a concise 2-sentence medical explanation.\n"
+                    f"2. Independent Labeling: Classify this as [Harmful, Misleading, Verified, or Irrelevant].\n\n"
+                    f"Format: JSON ONLY with keys 'explanation' and 'llm_label'."
+                )
 
-            # Cache the result
-            _explanation_cache[cache_key] = explanation
-            return explanation
+                response = await client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": "You are a professional medical fact-checker. Respond in valid JSON only."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.1,
+                    response_format={"type": "json_object"}
+                )
+                
+                res_content = json.loads(response.choices[0].message.content)
+                explanation = res_content.get("explanation", "No explanation provided.")
+                llm_label = res_content.get("llm_label", label)
+
+                result = (explanation, llm_label)
+                _explanation_cache[cache_key] = result
+                return result
 
         except Exception as e:
-            print(f"[*] Groq API error: {e}. Using rule-based fallback.")
+            print(f"[*] {provider.upper()} API error: {e}. Falling back to rule-based.")
 
-    # Fallback to rule-based
-    explanation = _get_rule_based_explanation(
-        text, label, confidence, important_words
-    )
-    _explanation_cache[cache_key] = explanation
-    return explanation
+    # Fallback
+    explanation = _get_rule_based_explanation(text, label, confidence, important_words)
+    result = (explanation, label) # Secondary label is same as primary in fallback
+    _explanation_cache[cache_key] = result
+    return result
 
 
 def get_explanation_sync(text, label, confidence, important_words=None):

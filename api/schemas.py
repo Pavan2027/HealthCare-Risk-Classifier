@@ -29,6 +29,7 @@ class PredictResponse(BaseModel):
     all_probabilities: dict[str, float]
     important_words: list[WordImportance] = []
     explanation: Optional[str] = None
+    llm_label: Optional[str] = None
     latency_ms: float
 
 
@@ -47,9 +48,10 @@ class BatchPredictResponse(BaseModel):
 
 class ScrapeRequest(BaseModel):
     """Web scraping + classification request."""
-    platform: str = Field(..., description="Platform to scrape: 'reddit' or 'youtube'")
+    url: Optional[str] = Field(None, description="Direct URL to scrape (YouTube, Reddit, or Blog)")
+    platform: Optional[str] = Field(None, description="Platform (optional if URL is provided)")
     query: Optional[str] = Field(None, description="Search query or subreddit name")
-    max_items: int = Field(default=20, ge=1, le=100, description="Maximum items to scrape")
+    max_items: int = Field(default=10, ge=1, le=50, description="Maximum items to scrape")
 
 
 class ScrapeResult(BaseModel):
@@ -61,6 +63,7 @@ class ScrapeResult(BaseModel):
     label: str
     confidence: float
     explanation: Optional[str] = None
+    llm_label: Optional[str] = None
 
 
 class ScrapeResponse(BaseModel):

@@ -12,7 +12,7 @@ import torch
 import numpy as np
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from training.config import DISTILBERT_DIR, MAX_LENGTH, LABEL_MAP
+from training.config import DEBERTA_DIR, MAX_LENGTH, LABEL_MAP
 
 
 class AttentionExplainer:
@@ -26,7 +26,7 @@ class AttentionExplainer:
             self.model = model
             self.tokenizer = tokenizer
         else:
-            model_path = model_path or str(DISTILBERT_DIR / "best")
+            model_path = model_path or str(DEBERTA_DIR / "best")
             self.tokenizer = AutoTokenizer.from_pretrained(model_path)
             self.model = AutoModelForSequenceClassification.from_pretrained(
                 model_path, output_attentions=True
