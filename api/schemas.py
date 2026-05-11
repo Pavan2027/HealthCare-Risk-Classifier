@@ -30,6 +30,7 @@ class PredictResponse(BaseModel):
     important_words: list[WordImportance] = []
     explanation: Optional[str] = None
     llm_label: Optional[str] = None
+    disagreement: Optional[bool] = None  # True when model and LLM labels differ
     latency_ms: float
 
 

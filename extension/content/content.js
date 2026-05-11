@@ -1,6 +1,7 @@
 /**
  * HealthGuard - Content Script
- * Extracts text from web pages, classifies it, and overlays risk indicators.
+ * Extracts text from web pages, classifies it, and overlays risk indicators
+ * including inline word-level attention highlights.
  */
 
 (function () {
@@ -56,7 +57,7 @@
 
   async function classifySingle(text) {
     return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: "CLASSIFY_TEXT", text }, resolve);
+      chrome.runtime.sendMessage({ type: "CLASSIFY_TEXT", text, useLlm: false }, resolve);
     });
   }
 
@@ -64,6 +65,68 @@
     return new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: "CLASSIFY_BATCH", texts }, resolve);
     });
+  }
+
+  // ── Inline Word Highlights ──────────────────────────────────────────
+
+  /**
+   * Wraps important_words tokens inside the element's text nodes
+   * with <mark class="hg-word-highlight-{label}"> spans.
+   * Operates on text nodes only to avoid breaking existing DOM structure.
+   */
+  function applyWordHighlights(element, importantWords, label) {
+    if (!importantWords || importantWords.length === 0) return;
+
+    const labelClass = label.toLowerCase();
+    // Build a regex that matches any of the important words (case-insensitive, word boundary)
+    const escapedWords = importantWords
+      .map((w) => (w.word || w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .filter((w) => w.length > 1);
+
+    if (escapedWords.length === 0) return;
+
+    const pattern = new RegExp(`\\b(${escapedWords.join("|")})\\b`, "gi");
+
+    // Walk only text nodes inside the element
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        // Skip if already inside one of our marks
+        if (node.parentElement?.closest(".hg-word-highlight")) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) textNodes.push(node);
+
+    for (const textNode of textNodes) {
+      const text = textNode.nodeValue;
+      if (!pattern.test(text)) continue;
+      pattern.lastIndex = 0;
+
+      const fragment = document.createDocumentFragment();
+      let lastIndex = 0;
+      let match;
+
+      while ((match = pattern.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+        }
+        const mark = document.createElement("mark");
+        mark.className = `hg-word-highlight hg-word-highlight-${labelClass}`;
+        mark.textContent = match[0];
+        mark.title = `Key indicator (${label})`;
+        fragment.appendChild(mark);
+        lastIndex = pattern.lastIndex;
+      }
+
+      if (lastIndex < text.length) {
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+
+      textNode.parentNode.replaceChild(fragment, textNode);
+    }
   }
 
   // ── Overlay UI ─────────────────────────────────────────────────────
@@ -80,38 +143,65 @@
 
     if (label === "Verified" || label === "Irrelevant") return;
 
-    // Add risk class
+    // Add left-border risk class
     element.classList.add("hg-risk", `hg-risk-${label.toLowerCase()}`);
 
-    // Create tooltip
-    const tooltip = document.createElement("div");
-    tooltip.className = `hg-tooltip hg-tooltip-${label.toLowerCase()}`;
+    // Apply inline word highlights
+    if (result.important_words && result.important_words.length > 0) {
+      applyWordHighlights(element, result.important_words, label);
+    }
 
+    // Build tooltip content
     const icon = label === "Harmful" ? "🚨" : "⚠️";
     const conf = Math.round(result.confidence * 100);
 
+    const wordsHtml = result.important_words && result.important_words.length > 0
+      ? `<div class="hg-tooltip-words">
+           Key signals: ${result.important_words.slice(0, 5)
+             .map((w) => `<span class="hg-word-chip">${w.word || w}</span>`)
+             .join("")}
+         </div>`
+      : "";
+
+    const explanationHtml = result.explanation
+      ? `<div class="hg-tooltip-explanation">${result.explanation}</div>`
+      : "";
+
+    const disagreementHtml = result.disagreement
+      ? `<div class="hg-tooltip-disagree">⚠ AI models disagree — review carefully</div>`
+      : "";
+
+    const tooltip = document.createElement("div");
+    tooltip.className = `hg-tooltip hg-tooltip-${label.toLowerCase()}`;
     tooltip.innerHTML = `
       <div class="hg-tooltip-header">
         <span class="hg-tooltip-icon">${icon}</span>
         <span class="hg-tooltip-label">${label}</span>
         <span class="hg-tooltip-conf">${conf}%</span>
+        <button class="hg-tooltip-close" title="Dismiss">✕</button>
       </div>
       <div class="hg-tooltip-body">
-        ${result.important_words && result.important_words.length > 0
-          ? `<div class="hg-tooltip-words">Key: ${result.important_words.slice(0, 4).map(w => w.word || w).join(", ")}</div>`
-          : ""
-        }
-        <div class="hg-tooltip-cta">Click for details</div>
+        ${wordsHtml}
+        ${explanationHtml}
+        ${disagreementHtml}
+        <div class="hg-tooltip-cta">Click to expand · Hover to read</div>
       </div>
     `;
 
-    // Position tooltip on hover
     element.style.position = element.style.position || "relative";
     element.appendChild(tooltip);
 
-    // Click to expand
-    element.addEventListener("click", () => {
-      tooltip.classList.toggle("hg-tooltip-expanded");
+    // Close button
+    tooltip.querySelector(".hg-tooltip-close")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      tooltip.remove();
+    });
+
+    // Click to pin/unpin
+    element.addEventListener("click", (e) => {
+      if (!e.target.closest(".hg-tooltip-close")) {
+        tooltip.classList.toggle("hg-tooltip-expanded");
+      }
     });
   }
 
@@ -153,7 +243,7 @@
       });
     }
 
-    // Update extension badge
+    // Update extension badge count
     chrome.runtime.sendMessage({
       type: "UPDATE_BADGE",
       counts: { harmful: scanResults.harmful, misleading: scanResults.misleading },
@@ -194,15 +284,34 @@
     updateFloatingBadge();
   }
 
+  // ── Cleanup Helper ─────────────────────────────────────────────────
+
+  function cleanupPage() {
+    // Remove risk classes + tooltips
+    document.querySelectorAll("[data-hg-scanned]").forEach((el) => {
+      delete el.dataset.hgScanned;
+      el.classList.remove("hg-risk", "hg-risk-harmful", "hg-risk-misleading");
+      el.querySelector(".hg-tooltip")?.remove();
+    });
+
+    // Unwrap inline word highlights back to plain text
+    document.querySelectorAll(".hg-word-highlight").forEach((mark) => {
+      const parent = mark.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(mark.textContent), mark);
+        parent.normalize(); // merge adjacent text nodes
+      }
+    });
+  }
+
   // ── Initialization ─────────────────────────────────────────────────
 
-  // Check if enabled
   chrome.storage.local.get(["enabled"], (result) => {
     isEnabled = result.enabled !== false;
     if (isEnabled) {
       setTimeout(scanPage, SCAN_DELAY);
 
-      // Watch for dynamic content
+      // Watch for dynamic content (SPAs, infinite scroll)
       const observer = new MutationObserver(() => {
         clearTimeout(window.__hgRescanTimer);
         window.__hgRescanTimer = setTimeout(scanPage, 3000);
@@ -220,11 +329,7 @@
     }
     if (msg.type === "RESCAN") {
       scanResults = { harmful: 0, misleading: 0, verified: 0, irrelevant: 0 };
-      document.querySelectorAll("[data-hg-scanned]").forEach((el) => {
-        delete el.dataset.hgScanned;
-        el.classList.remove("hg-risk", "hg-risk-harmful", "hg-risk-misleading");
-        el.querySelector(".hg-tooltip")?.remove();
-      });
+      cleanupPage();
       scanPage();
       sendResponse({ ok: true });
     }

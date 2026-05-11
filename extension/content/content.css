@@ -1,7 +1,7 @@
 /* HealthGuard - Content Script Styles */
-/* Overlay highlights and tooltip styling for risk indicators */
+/* Overlay highlights, word-level attention marks, and tooltip styling */
 
-/* ── Risk Highlights ─────────────────────────────────────────────── */
+/* ── Risk Paragraph Highlights ───────────────────────────────────── */
 
 .hg-risk {
   position: relative;
@@ -10,16 +10,53 @@
 
 .hg-risk-harmful {
   border-left: 3px solid #e74c3c;
-  background: linear-gradient(90deg, rgba(231, 76, 60, 0.08) 0%, transparent 100%);
+  background: linear-gradient(90deg, rgba(231, 76, 60, 0.07) 0%, transparent 100%);
   padding-left: 8px;
   border-radius: 2px;
 }
 
 .hg-risk-misleading {
   border-left: 3px solid #f39c12;
-  background: linear-gradient(90deg, rgba(243, 156, 18, 0.08) 0%, transparent 100%);
+  background: linear-gradient(90deg, rgba(243, 156, 18, 0.07) 0%, transparent 100%);
   padding-left: 8px;
   border-radius: 2px;
+}
+
+/* ── Inline Word-Level Attention Highlights ──────────────────────── */
+
+.hg-word-highlight {
+  border-radius: 3px;
+  padding: 0 2px;
+  font-style: inherit;
+  font-weight: inherit;
+  cursor: help;
+  transition: background 0.2s;
+}
+
+.hg-word-highlight-harmful {
+  background: rgba(231, 76, 60, 0.22);
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(231, 76, 60, 0.6);
+  text-decoration-style: wavy;
+  text-underline-offset: 2px;
+}
+
+.hg-word-highlight-harmful:hover {
+  background: rgba(231, 76, 60, 0.38);
+}
+
+.hg-word-highlight-misleading {
+  background: rgba(243, 156, 18, 0.2);
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(243, 156, 18, 0.5);
+  text-decoration-style: wavy;
+  text-underline-offset: 2px;
+}
+
+.hg-word-highlight-misleading:hover {
+  background: rgba(243, 156, 18, 0.35);
 }
 
 /* ── Tooltips ────────────────────────────────────────────────────── */
@@ -32,17 +69,17 @@
   z-index: 999999;
   background: #1a1a2e;
   color: #eee;
-  border-radius: 10px;
-  padding: 8px 12px;
+  border-radius: 12px;
+  padding: 10px 14px;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 12px;
-  line-height: 1.4;
-  min-width: 160px;
-  max-width: 300px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  line-height: 1.5;
+  min-width: 200px;
+  max-width: 320px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255,255,255,0.06);
   pointer-events: auto;
   animation: hg-fade-in 0.2s ease-out;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
 }
 
 .hg-risk:hover .hg-tooltip {
@@ -54,61 +91,105 @@
 }
 
 .hg-tooltip-harmful {
-  border: 1px solid rgba(231, 76, 60, 0.5);
+  border: 1px solid rgba(231, 76, 60, 0.45);
 }
 
 .hg-tooltip-misleading {
-  border: 1px solid rgba(243, 156, 18, 0.5);
+  border: 1px solid rgba(243, 156, 18, 0.45);
 }
 
+/* Header row */
 .hg-tooltip-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 
-.hg-tooltip-icon {
-  font-size: 14px;
-}
+.hg-tooltip-icon { font-size: 14px; }
 
 .hg-tooltip-label {
   font-weight: 700;
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  flex: 1;
 }
 
-.hg-tooltip-harmful .hg-tooltip-label {
-  color: #e74c3c;
-}
-
-.hg-tooltip-misleading .hg-tooltip-label {
-  color: #f39c12;
-}
+.hg-tooltip-harmful .hg-tooltip-label { color: #e74c3c; }
+.hg-tooltip-misleading .hg-tooltip-label { color: #f39c12; }
 
 .hg-tooltip-conf {
-  margin-left: auto;
   font-size: 11px;
-  color: #aaa;
+  color: #888;
   font-weight: 600;
 }
 
+/* Close button */
+.hg-tooltip-close {
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 0 0 4px;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.hg-tooltip-close:hover { color: #e74c3c; }
+
+/* Body */
 .hg-tooltip-body {
   font-size: 11px;
   color: #bbb;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
+/* Word chips */
 .hg-tooltip-words {
-  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
   color: #8899aa;
-  font-style: italic;
+  font-size: 10px;
+}
+
+.hg-word-chip {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-weight: 500;
+  color: #aac;
+}
+
+/* Explanation text */
+.hg-tooltip-explanation {
+  font-size: 11px;
+  color: #aaa;
+  line-height: 1.5;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 6px;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+/* Disagreement warning */
+.hg-tooltip-disagree {
+  font-size: 10px;
+  color: #f39c12;
+  font-weight: 600;
+  background: rgba(243, 156, 18, 0.1);
+  border-radius: 4px;
+  padding: 3px 7px;
 }
 
 .hg-tooltip-cta {
-  margin-top: 6px;
   font-size: 10px;
-  color: #667;
+  color: #555;
   text-align: center;
 }
 
@@ -140,15 +221,8 @@
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
-.hg-badge-icon {
-  font-size: 22px;
-}
-
-.hg-badge-title {
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.3px;
-}
+.hg-badge-icon { font-size: 22px; }
+.hg-badge-title { font-weight: 700; font-size: 13px; letter-spacing: 0.3px; }
 
 .hg-badge-stats {
   display: flex;
@@ -157,15 +231,8 @@
   margin-top: 2px;
 }
 
-.hg-stat-harmful {
-  color: #e74c3c;
-  font-weight: 600;
-}
-
-.hg-stat-misleading {
-  color: #f39c12;
-  font-weight: 600;
-}
+.hg-stat-harmful { color: #e74c3c; font-weight: 600; }
+.hg-stat-misleading { color: #f39c12; font-weight: 600; }
 
 .hg-badge-close {
   background: none;
@@ -178,9 +245,7 @@
   transition: color 0.2s;
 }
 
-.hg-badge-close:hover {
-  color: #e74c3c;
-}
+.hg-badge-close:hover { color: #e74c3c; }
 
 /* ── Animations ──────────────────────────────────────────────────── */
 

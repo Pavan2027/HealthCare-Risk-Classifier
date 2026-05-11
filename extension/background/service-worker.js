@@ -24,9 +24,9 @@ async function getApiUrl() {
   return result.apiUrl || DEFAULT_API_URL;
 }
 
-async function classifyText(text) {
-  // Check cache
-  const cacheKey = text.slice(0, 100);
+async function classifyText(text, useLlm = false) {
+  // Check cache (only for non-LLM requests to avoid stale explanations)
+  const cacheKey = text.slice(0, 100) + (useLlm ? "_llm" : "");
   const cached = classificationCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.result;
@@ -38,7 +38,7 @@ async function classifyText(text) {
     const response = await fetch(`${apiUrl}/predict`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, explain: true, use_llm: false }),
+      body: JSON.stringify({ text, explain: true, use_llm: useLlm }),
     });
 
     if (!response.ok) throw new Error(`API error: ${response.status}`);
@@ -85,7 +85,7 @@ async function checkApiHealth() {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "CLASSIFY_TEXT") {
-    classifyText(message.text).then(sendResponse);
+    classifyText(message.text, message.useLlm || false).then(sendResponse);
     return true; // Keep channel open for async
   }
 

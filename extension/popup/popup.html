@@ -58,9 +58,20 @@
     <div class="manual-section">
       <h2 class="section-title">Check a Claim</h2>
       <textarea id="manual-input" class="manual-input" rows="3" placeholder="Paste a health claim to verify..."></textarea>
+      <div class="llm-toggle-row">
+        <label class="llm-toggle-label" for="use-llm-toggle">
+          <span class="llm-icon">🤖</span> LLM Second Opinion
+        </label>
+        <label class="toggle-switch toggle-switch-sm">
+          <input type="checkbox" id="use-llm-toggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
       <button id="check-btn" class="check-btn">
         <span class="btn-text">Analyze Claim</span>
-        <span class="btn-loader" id="btn-loader" style="display:none;">⏳</span>
+        <span class="btn-loader" id="btn-loader" style="display:none;">
+          <span class="spinner"></span>
+        </span>
       </button>
     </div>
 
@@ -71,7 +82,15 @@
         <span class="result-label" id="result-label"></span>
         <span class="result-confidence" id="result-confidence"></span>
       </div>
+      <!-- Disagreement badge -->
+      <div class="disagree-badge" id="disagree-badge" style="display:none;">
+        ⚠ DeBERTa and LLM disagree — review carefully
+      </div>
+      <!-- Key word chips -->
       <div class="result-words" id="result-words"></div>
+      <!-- LLM Explanation -->
+      <div class="result-explanation" id="result-explanation" style="display:none;"></div>
+      <!-- Probability bars -->
       <div class="result-probs" id="result-probs"></div>
     </div>
 
@@ -92,7 +111,7 @@
     <!-- Footer -->
     <footer class="footer">
       <span>HealthGuard v1.0</span>
-      <span>Powered by DistilBERT</span>
+      <span>Powered by DeBERTa-v3</span>
     </footer>
   </div>
 

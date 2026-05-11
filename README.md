@@ -30,13 +30,9 @@ The system uses a custom **Multi-Sample DeBERTa** architecture with **Layer-wise
 | **ONNX Inference Engine** | Optimized model export for <25ms latency on standard CPUs. |
 | **LLM Reasoning Layer** | Groq/Ollama-powered dual-check: explains *why* a claim is flagged and provides a second opinion label. |
 | **Social Media Scraper** | Real-time monitoring of Reddit, YouTube transcripts/comments, and generic health blogs. |
-| **FastAPI Backend** | Production-ready REST API with `/predict`, `/scrape`, and `/health` endpoints. |
-
-### Upcoming
-| Feature | Description |
-|---|---|
-| **Chrome Extension** | Browser overlay to highlight misinformation on health blogs in real-time. |
-| **Attention Highlights** | Token-level importance scores surfaced through the `/predict` API. |
+| **FastAPI Backend** | Production-ready REST API with `/predict`, `/predict/batch`, `/scrape`, and `/health` endpoints. |
+| **Chrome Extension** | Browser overlay — inline word-level attention highlights, tooltip explanations, and floating risk badge. |
+| **Attention Highlights** | DeBERTa CLS-token attention scores surface key risk words in both the API and the extension. |
 
 ---
 
@@ -122,15 +118,23 @@ cp .env.example .env
 # Edit .env and fill in your API keys
 ```
 
-### 3. Training & Optimization
+### 3. Training Pipeline
+
+> **Data augmentation is run first** — it significantly improves minority class (Harmful / Misleading) recall and should always precede a training run.
+
 ```bash
-# Start full fine-tuning with LLRD
+# Step 1 — Generate synthetic data for rare classes
+#   Requires Ollama running locally (llama3.2) or a Groq/Gemini API key.
+#   Output → data/processed/synthetic_data.csv (auto-injected by data_loader.py)
+python data/augment_data.py
+
+# Step 2 — Fine-tune DeBERTa-v3 with LLRD + augmented data
 python run_training.py
 
-# Find the optimized thresholds for your model
+# Step 3 — Find optimal per-class decision thresholds
 python optimize_thresholds.py
 
-# Export for the browser extension or CPU deployment
+# Step 4 (optional) — Export to ONNX for CPU deployment / browser extension
 python export_onnx.py
 ```
 
@@ -155,19 +159,20 @@ The server will:
 {
   "status": "healthy",
   "model_loaded": true,
-  "inference_engine": "onnx_quantized",
+  "inference_engine": "pytorch",
   "version": "1.0.0"
 }
 ```
 
 #### `POST /predict`
-Classify a single piece of health text with optional LLM dual-check.
+Classify a single piece of health text. Returns attention-based word highlights when the PyTorch model is active.
 
 ```bash
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
   -d '{
     "text": "Drinking bleach cures COVID-19.",
+    "explain": true,
     "use_llm": true
   }'
 ```
@@ -177,14 +182,25 @@ curl -X POST http://localhost:8000/predict \
   "label": "Harmful",
   "confidence": 0.9612,
   "confidence_level": "high",
-  "all_probabilities": { "Harmful": 0.9612, "Misleading": 0.031, ... },
-  "explanation": "Bleach is a corrosive chemical that causes severe burns and organ failure...",
+  "important_words": [{"word": "bleach", "score": 0.412}, {"word": "cures", "score": 0.287}],
+  "all_probabilities": { "Harmful": 0.9612, "Misleading": 0.031, "Verified": 0.005, "Irrelevant": 0.003 },
+  "explanation": "Bleach is a corrosive chemical that causes severe burns...",
   "llm_label": "Harmful",
+  "disagreement": false,
   "latency_ms": 4548.33
 }
 ```
 
-> **Dual-Check**: When `use_llm: true`, the Groq LLM independently classifies the claim. If `label` ≠ `llm_label`, the response signals a disagreement — a strong indicator to flag for human review.
+> **Dual-Check**: When `use_llm: true`, the Groq LLM independently classifies the claim. If `disagreement: true`, the two models disagree — a strong indicator to flag for human review.
+
+#### `POST /predict/batch`
+Batch-classify up to 32 texts efficiently (used by the Chrome extension for page scanning).
+
+```bash
+curl -X POST http://localhost:8000/predict/batch \
+  -H "Content-Type: application/json" \
+  -d '{"texts": ["Vaccines cause autism.", "Exercise improves heart health."], "explain": false}'
+```
 
 #### `POST /scrape`
 Scrape a URL and automatically classify its content.
@@ -197,7 +213,24 @@ curl -X POST http://localhost:8000/scrape \
 
 Supported sources: **YouTube** (transcript), **Reddit** (post + selftext), **Generic Web** (Trafilatura extraction).
 
-### 6. Running the Scrapers Standalone
+### 6. Chrome Extension
+
+```bash
+# No build step needed — the extension is plain JS/HTML/CSS.
+# Load it in Chrome:
+# 1. Open chrome://extensions
+# 2. Enable "Developer mode" (top right)
+# 3. Click "Load unpacked" → select the extension/ folder
+```
+
+Once loaded:
+- Open any health article (e.g., healthline.com, WebMD)
+- The extension scans paragraphs automatically and adds left-border risk indicators
+- **Flagged words** are underlined with a wavy colored mark (attention highlights)
+- Hover over a paragraph to see the tooltip with confidence, key signals, and LLM explanation
+- Click the extension icon to open the popup for manual claim checking
+
+### 7. Running the Scrapers Standalone
 
 ```bash
 # Scrape Reddit health subreddits
@@ -210,14 +243,94 @@ python scraper/youtube_scraper.py
 python llm_layer/test_llm.py
 ```
 
-### 7. Data Augmentation (Optional)
-To improve minority class performance (`Harmful`, `Misleading`), generate synthetic data:
+---
 
+## Testing Guide
+
+### Layer 1 — LLM Reasoning
 ```bash
-python data/augment_data.py
+# Tests all 4 labels against the Groq API and prints explanation + second-opinion label
+python llm_layer/test_llm.py
 ```
+Expected: each label prints `Primary Model: X`, `LLM Second Opinion: Y`, and a 2-sentence explanation.
 
-The `training/data_loader.py` automatically detects and injects `data/processed/synthetic_data.csv` on the next training run.
+### Layer 2 — API Backend
+```bash
+# Start the server
+python -m uvicorn api.main:app --host 0.0.0.0 --port 8000
+
+# In a separate terminal:
+# Health check
+curl http://localhost:8000/health
+
+# Single predict (with attention highlights)
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Essential oils can cure cancer.", "explain": true, "use_llm": true}'
+
+# Batch predict (extension page scan)
+curl -X POST http://localhost:8000/predict/batch \
+  -H "Content-Type: application/json" \
+  -d '{"texts": ["Vaccines are safe.", "Bleach cures COVID."], "explain": false}'
+
+# Or use interactive Swagger UI:
+start http://localhost:8000/docs
+```
+Expected: `/predict` returns `important_words` as a list of `{word, score}` objects (PyTorch model).
+
+### Layer 3 — Chrome Extension
+1. Load the extension (see step 6 above)
+2. Open `https://www.healthline.com/nutrition/vitamin-c-benefits`
+3. Wait ~2 seconds for the auto-scan
+4. Verify: red/orange left borders on flagged paragraphs, wavy underlines on key words
+5. Hover a flagged paragraph → tooltip appears with label, confidence, and word chips
+6. Open the popup → type `"Drinking bleach cures COVID"` → click **Analyze Claim**
+7. Toggle **🤖 LLM Second Opinion** ON → re-run → verify explanation block appears
+
+### Layer 4 — Social Media Scrapers
+```bash
+# Requires REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET in .env
+python scraper/reddit_scraper.py
+
+# Requires YOUTUBE_API_KEY in .env
+python scraper/youtube_scraper.py
+```
+Expected: CSV files written to `data/scraped/` with `text`, `source`, `platform`, `url` columns.
+
+---
+
+## GitHub Releases
+
+The recommended release strategy for this project:
+
+### Option A — GitHub Releases (Recommended)
+Because the model weights are large (>400MB), they are **not committed to the repo**. Instead:
+
+1. **Tag a release** after training:
+   ```bash
+   git tag -a v1.0.0 -m "DeBERTa-v3 trained — F1 Macro 0.648"
+   git push origin v1.0.0
+   ```
+2. On GitHub → **Releases → Create a release from tag**
+3. Upload the following as release **Assets**:
+   - `models/deberta/best/` (zip) — PyTorch weights
+   - `models/onnx/model.onnx` — ONNX model for CPU deployment
+4. **End users** can then download and place these in the correct paths before running the API.
+
+### Option B — Hugging Face Hub
+Push the fine-tuned model to your HuggingFace account so end users can pull it automatically:
+```bash
+pip install huggingface_hub
+huggingface-cli login
+python -c "
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+model = AutoModelForSequenceClassification.from_pretrained('models/deberta/best')
+tokenizer = AutoTokenizer.from_pretrained('models/deberta/best')
+model.push_to_hub('Pavan2027/healthcare-risk-deberta-v3')
+tokenizer.push_to_hub('Pavan2027/healthcare-risk-deberta-v3')
+"
+```
+Then users can load directly: `AutoModel.from_pretrained('Pavan2027/healthcare-risk-deberta-v3')`
 
 ---
 

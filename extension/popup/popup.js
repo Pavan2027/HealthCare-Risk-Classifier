@@ -1,25 +1,29 @@
 /**
  * HealthGuard - Popup Logic
- * Handles UI interactions, API health checks, and manual claim checking.
+ * Handles UI interactions, API health checks, manual claim checking,
+ * and rendering of attention highlights, LLM explanations, and probability bars.
  */
 
 document.addEventListener("DOMContentLoaded", () => {
-  const statusDot = document.getElementById("status-dot");
-  const statusText = document.getElementById("status-text");
-  const toggleScan = document.getElementById("toggle-scan");
-  const manualInput = document.getElementById("manual-input");
-  const checkBtn = document.getElementById("check-btn");
-  const btnLoader = document.getElementById("btn-loader");
-  const resultCard = document.getElementById("result-card");
-  const rescanBtn = document.getElementById("rescan-btn");
-  const settingsBtn = document.getElementById("settings-btn");
-  const settingsPanel = document.getElementById("settings-panel");
-  const apiUrlInput = document.getElementById("api-url-input");
-  const saveSettings = document.getElementById("save-settings");
+  const statusDot      = document.getElementById("status-dot");
+  const statusText     = document.getElementById("status-text");
+  const toggleScan     = document.getElementById("toggle-scan");
+  const useLlmToggle   = document.getElementById("use-llm-toggle");
+  const manualInput    = document.getElementById("manual-input");
+  const checkBtn       = document.getElementById("check-btn");
+  const btnLoader      = document.getElementById("btn-loader");
+  const resultCard     = document.getElementById("result-card");
+  const disagreeEl     = document.getElementById("disagree-badge");
+  const explanationEl  = document.getElementById("result-explanation");
+  const rescanBtn      = document.getElementById("rescan-btn");
+  const settingsBtn    = document.getElementById("settings-btn");
+  const settingsPanel  = document.getElementById("settings-panel");
+  const apiUrlInput    = document.getElementById("api-url-input");
+  const saveSettings   = document.getElementById("save-settings");
 
   // ── Initialize ───────────────────────────────────────────────────
 
-  // Check API health
+  // Check API health on open
   chrome.runtime.sendMessage({ type: "CHECK_HEALTH" }, (isHealthy) => {
     if (isHealthy) {
       statusDot.classList.add("connected");
@@ -31,9 +35,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Load saved settings
-  chrome.storage.local.get(["enabled", "apiUrl"], (result) => {
+  chrome.storage.local.get(["enabled", "apiUrl", "useLlm"], (result) => {
     toggleScan.checked = result.enabled !== false;
-    apiUrlInput.value = result.apiUrl || "http://localhost:8000";
+    apiUrlInput.value  = result.apiUrl || "http://localhost:8000";
+    useLlmToggle.checked = result.useLlm === true;
   });
 
   // Get current tab stats
@@ -41,9 +46,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (tabs[0]) {
       chrome.tabs.sendMessage(tabs[0].id, { type: "GET_STATS" }, (stats) => {
         if (stats) {
-          document.getElementById("stat-harmful").textContent = stats.harmful || 0;
+          document.getElementById("stat-harmful").textContent    = stats.harmful    || 0;
           document.getElementById("stat-misleading").textContent = stats.misleading || 0;
-          document.getElementById("stat-verified").textContent = stats.verified || 0;
+          document.getElementById("stat-verified").textContent   = stats.verified   || 0;
           document.getElementById("stat-irrelevant").textContent = stats.irrelevant || 0;
         }
       });
@@ -62,37 +67,41 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  // Persist LLM preference
+  useLlmToggle.addEventListener("change", () => {
+    chrome.storage.local.set({ useLlm: useLlmToggle.checked });
+  });
+
   // ── Manual Check ─────────────────────────────────────────────────
 
   checkBtn.addEventListener("click", async () => {
     const text = manualInput.value.trim();
     if (!text || text.length < 10) {
-      manualInput.style.borderColor = "rgba(231, 76, 60, 0.5)";
+      manualInput.classList.add("input-error");
+      setTimeout(() => manualInput.classList.remove("input-error"), 800);
       return;
     }
 
-    manualInput.style.borderColor = "";
     checkBtn.disabled = true;
-    btnLoader.style.display = "inline";
+    btnLoader.style.display = "inline-flex";
+    document.querySelector(".btn-text").style.display = "none";
     resultCard.style.display = "none";
 
-    chrome.runtime.sendMessage({ type: "CLASSIFY_TEXT", text }, (result) => {
-      checkBtn.disabled = false;
-      btnLoader.style.display = "none";
+    chrome.runtime.sendMessage(
+      { type: "CLASSIFY_TEXT", text, useLlm: useLlmToggle.checked },
+      (result) => {
+        checkBtn.disabled = false;
+        btnLoader.style.display = "none";
+        document.querySelector(".btn-text").style.display = "";
 
-      if (!result) {
-        resultCard.style.display = "block";
-        document.getElementById("result-icon").textContent = "❌";
-        document.getElementById("result-label").textContent = "Error";
-        document.getElementById("result-label").className = "result-label";
-        document.getElementById("result-confidence").textContent = "";
-        document.getElementById("result-words").innerHTML = "Could not connect to API. Check settings.";
-        document.getElementById("result-probs").innerHTML = "";
-        return;
+        if (!result) {
+          showError("Could not connect to API. Check Settings.");
+          return;
+        }
+
+        showResult(result);
       }
-
-      showResult(result);
-    });
+    );
   });
 
   // Enter key to submit
@@ -103,39 +112,106 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // ── Result Rendering ─────────────────────────────────────────────
+
+  const LABEL_META = {
+    Harmful:    { icon: "🚨", color: "#e74c3c" },
+    Misleading: { icon: "⚠️",  color: "#f39c12" },
+    Verified:   { icon: "✅", color: "#2ecc71" },
+    Irrelevant: { icon: "🔘", color: "#95a5a6" },
+  };
+
+  function showError(msg) {
+    resultCard.style.display = "block";
+    document.getElementById("result-icon").textContent  = "❌";
+    const labelEl = document.getElementById("result-label");
+    labelEl.textContent = "Error";
+    labelEl.className   = "result-label";
+    document.getElementById("result-confidence").textContent = "";
+    document.getElementById("result-words").innerHTML = `<span class="error-msg">${msg}</span>`;
+    document.getElementById("result-probs").innerHTML = "";
+    disagreeEl.style.display    = "none";
+    explanationEl.style.display = "none";
+  }
+
   function showResult(result) {
     resultCard.style.display = "block";
+    const meta = LABEL_META[result.label] || { icon: "❓", color: "#aaa" };
 
-    const icons = { Harmful: "🚨", Misleading: "⚠️", Verified: "✅", Irrelevant: "🔘" };
-    document.getElementById("result-icon").textContent = icons[result.label] || "❓";
+    document.getElementById("result-icon").textContent = meta.icon;
 
     const labelEl = document.getElementById("result-label");
     labelEl.textContent = result.label;
-    labelEl.className = `result-label ${result.label.toLowerCase()}`;
+    labelEl.className   = `result-label ${result.label.toLowerCase()}`;
 
     const conf = Math.round(result.confidence * 100);
     document.getElementById("result-confidence").textContent = `${conf}%`;
 
-    // Important words
+    // ── Disagreement badge
+    if (result.disagreement) {
+      disagreeEl.style.display = "flex";
+      disagreeEl.textContent   = `⚠ DeBERTa says "${result.label}" · LLM says "${result.llm_label}"`;
+    } else {
+      disagreeEl.style.display = "none";
+    }
+
+    // ── Important words
     const wordsEl = document.getElementById("result-words");
     if (result.important_words && result.important_words.length > 0) {
-      const words = result.important_words.slice(0, 5);
-      wordsEl.innerHTML = "Key words: " + words.map(w => `<span>${w.word || w}</span>`).join("");
+      wordsEl.innerHTML = result.important_words
+        .slice(0, 6)
+        .map((w) => {
+          const word  = w.word || w;
+          const score = w.score != null ? Math.round(w.score * 100) : null;
+          const tip   = score != null ? ` title="Attention: ${score}%"` : "";
+          return `<span class="word-chip"${tip}>${word}</span>`;
+        })
+        .join("");
     } else {
       wordsEl.innerHTML = "";
     }
 
-    // Probability bars
-    const probsEl = document.getElementById("result-probs");
-    if (result.all_probabilities) {
-      probsEl.innerHTML = Object.entries(result.all_probabilities)
-        .map(([label, prob]) => {
-          const pct = Math.round(prob * 100);
-          return `<div class="prob-bar">${label}<br>${pct}%</div>`;
-        }).join("");
+    // ── LLM Explanation
+    if (result.explanation) {
+      explanationEl.style.display = "block";
+      explanationEl.textContent   = result.explanation;
     } else {
-      probsEl.innerHTML = "";
+      explanationEl.style.display = "none";
     }
+
+    // ── Probability bars
+    renderProbBars(result.all_probabilities, result.label);
+  }
+
+  function renderProbBars(probs, predictedLabel) {
+    const probsEl = document.getElementById("result-probs");
+    if (!probs || Object.keys(probs).length === 0) {
+      probsEl.innerHTML = "";
+      return;
+    }
+
+    const ORDER = ["Harmful", "Misleading", "Verified", "Irrelevant"];
+    const colors = {
+      Harmful:    "#e74c3c",
+      Misleading: "#f39c12",
+      Verified:   "#2ecc71",
+      Irrelevant: "#95a5a6",
+    };
+
+    probsEl.innerHTML = ORDER.map((label) => {
+      const val = probs[label] ?? 0;
+      const pct = Math.round(val * 100);
+      const color = colors[label] || "#aaa";
+      const active = label === predictedLabel ? "prob-row-active" : "";
+      return `
+        <div class="prob-row ${active}">
+          <span class="prob-label">${label}</span>
+          <div class="prob-track">
+            <div class="prob-fill" style="width:${pct}%; background:${color};"></div>
+          </div>
+          <span class="prob-pct">${pct}%</span>
+        </div>`;
+    }).join("");
   }
 
   // ── Rescan ───────────────────────────────────────────────────────
@@ -144,6 +220,9 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]) {
         chrome.tabs.sendMessage(tabs[0].id, { type: "RESCAN" });
+        // Reset stats display
+        ["stat-harmful", "stat-misleading", "stat-verified", "stat-irrelevant"]
+          .forEach((id) => (document.getElementById(id).textContent = "0"));
       }
     });
   });
@@ -160,9 +239,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (url) {
       chrome.storage.local.set({ apiUrl: url });
       settingsPanel.style.display = "none";
-      // Re-check health
       chrome.runtime.sendMessage({ type: "CHECK_HEALTH" }, (isHealthy) => {
-        statusDot.className = "status-dot " + (isHealthy ? "connected" : "disconnected");
+        statusDot.className  = "status-dot " + (isHealthy ? "connected" : "disconnected");
         statusText.textContent = isHealthy ? "Connected" : "Offline";
       });
     }
